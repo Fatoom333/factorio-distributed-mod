@@ -1,0 +1,9 @@
+{
+  "name": "factorio-distributed",
+  "version": "0.0.1",
+  "title": "Factorio Distributed (client connector)",
+  "author": "Tartaluga",
+  "factorio_version": "2.0",
+  "description": "Клиентская часть: локальный Factorio только отображает мир, который считает внешнее ядро. Ядро шлёт команды через RCON.",
+  "dependencies": ["base >= 2.0"]
+}
