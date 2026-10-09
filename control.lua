@@ -4,6 +4,8 @@
 -- выполнять по RCON произвольный Lua-код.
 -- Ответ — ровно одна строка через rcon.print.
 
+local mega = require("mega")
+
 local ops = {}
 
 ops.ping = function()
@@ -350,7 +352,21 @@ ops.poll = function()
   return helpers.table_to_json{now = game.tick, ev = queue}
 end
 
+-- Мегабаза (замер №5): операции из mega.lua.
+ops.mb_info = mega.info
+ops.mb_windows = mega.windows
+ops.mb_flow_start = mega.flow_start
+ops.mb_flow_result = mega.flow_result
+ops.mb_freeze_outside = mega.freeze_outside
+ops.mb_clear_belts_outside = mega.clear_belts_outside
+ops.mb_health = mega.health
+ops.speed = function(msg)
+  game.speed = msg.speed
+  return game.speed
+end
+
 script.on_event(defines.events.on_tick, function(e)
+  mega.on_tick()
   local ev = storage.ev
   if not ev or e.tick % ev.every ~= 0 then return end
   local lines = ev.mode == "file" and {} or nil
