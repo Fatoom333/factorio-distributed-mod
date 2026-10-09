@@ -220,6 +220,47 @@ ops.fz_clear = function()
   return "ok"
 end
 
+-- Замер заполнения полосы при входе в окно: LuaTransportLine.insert_at.
+-- Ряды прямых конвейеров по 32 клетки от (0, 1000), вплотную, через ряд.
+ops.ins_setup = function(msg)
+  local surface = game.surfaces["nauvis"]
+  local rows = math.ceil(msg.n / 32)
+  prepare_area(surface, 0, 1000, 32, rows * 2)
+  local lines = {}
+  for i = 0, msg.n - 1 do
+    local b = surface.create_entity{
+      name = "transport-belt", position = {i % 32 + 0.5, 1000 + math.floor(i / 32) * 2 + 0.5},
+      direction = defines.direction.east, force = "player",
+    }
+    lines[#lines + 1] = b.get_transport_line(1)
+    lines[#lines + 1] = b.get_transport_line(2)
+  end
+  storage.ins = lines
+  return #lines
+end
+
+-- repeat раз: (если fill) поставить на каждую ленту 4 плиты через insert_at, затем clear.
+-- Возвращает, сколько вставок удалось в последнем повторе.
+ops.ins_fill = function(msg)
+  local lines = storage.ins
+  local plate = {name = "iron-plate", count = 1}
+  local ok = 0
+  for _ = 1, msg["repeat"] or 1 do
+    ok = 0
+    for i = 1, #lines do
+      local line = lines[i]
+      if msg.fill then
+        local len = line.line_length
+        for k = 1, 4 do
+          if line.insert_at(len * (k - 0.5) / 4, plate) then ok = ok + 1 end
+        end
+      end
+      line.clear()
+    end
+  end
+  return ok
+end
+
 -- Замер клиент → ядро: синтетические «действия игрока».
 -- Каждые every тиков мод создаёт per_tick событий; ядро забирает их опросом (poll)
 -- или читает из файла script-output/fd-events.jsonl (mode = "file").
