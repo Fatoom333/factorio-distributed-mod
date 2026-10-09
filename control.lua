@@ -5,6 +5,7 @@
 -- Ответ — ровно одна строка через rcon.print.
 
 local mega = require("mega")
+local scene = require("scene")
 
 local ops = {}
 
@@ -360,6 +361,11 @@ ops.mb_flow_result = mega.flow_result
 ops.mb_freeze_outside = mega.freeze_outside
 ops.mb_clear_belts_outside = mega.clear_belts_outside
 ops.mb_health = mega.health
+-- Сцены для сверки модели ядра с игрой (этап M0): scene.lua.
+ops.scene_build = scene.build
+ops.scene_run = scene.run
+ops.scene_status = scene.status
+ops.scene_info = scene.info
 ops.speed = function(msg)
   game.speed = msg.speed
   return game.speed
@@ -367,6 +373,7 @@ end
 
 script.on_event(defines.events.on_tick, function(e)
   mega.on_tick()
+  scene.on_tick()
   local ev = storage.ev
   if not ev or e.tick % ev.every ~= 0 then return end
   local lines = ev.mode == "file" and {} or nil
