@@ -3,7 +3,7 @@
 Клиентский мод-коннектор проекта Factorio Distributed.
 
 Локальный Factorio запускается как сервер и только **рисует** мир. Сам мир считает внешнее ядро
-([factorio-distributed-core](https://github.com/Fatoom333/factorio-distributed-core)), которое управляет клиентом через RCON (`/c` + Lua).
+([factorio-distributed-core](https://github.com/Fatoom333/factorio-distributed-core)), которое управляет клиентом через RCON — своей командой мода `/fd <JSON>` (не `/c`: команды мода не отключают достижения и не выполняют произвольный Lua).
 
 Задачи мода:
 - принимать изменения мира от ядра и применять их к сущностям;
