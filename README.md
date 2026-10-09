@@ -10,7 +10,7 @@
 - передавать ядру действия игрока;
 - не давать собственной симуляции Factorio «спорить» с ядром.
 
-Статус: заготовка. Есть только `remote`-интерфейс `factorio_distributed.ping` для проверки связи по RCON.
+Статус: замеры перед проектированием. Команда `/fd` (только от сервера/RCON) умеет `ping`, `tick` и операции замеров — см. [factorio-distributed-core/bench](https://github.com/Fatoom333/factorio-distributed-core/tree/main/bench).
 
 ## Лицензия
 
