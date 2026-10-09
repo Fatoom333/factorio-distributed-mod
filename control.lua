@@ -32,24 +32,30 @@ local function bench_clear(surface, side)
   end
 end
 
+-- Готовит прямоугольник под постройку: генерирует чанки, сносит всё, кроме персонажей,
+-- засыпает воду.
+local function prepare_area(surface, x0, y0, w, h)
+  surface.request_to_generate_chunks({x0 + w / 2, y0 + h / 2}, math.ceil(math.max(w, h) / 64) + 1)
+  surface.force_generate_chunk_requests()
+  for _, e in pairs(surface.find_entities{{x0, y0}, {x0 + w, y0 + h}}) do
+    if e.valid and e.type ~= "character" then e.destroy() end
+  end
+  local tiles = {}
+  for x = x0, x0 + w - 1 do
+    for y = y0, y0 + h - 1 do
+      tiles[#tiles + 1] = {name = "landfill", position = {x, y}}
+    end
+  end
+  surface.set_tiles(tiles)
+end
+
 -- Создаёт n сундуков квадратом от (0, 0), на засыпанной земле.
 ops.bench_setup = function(msg)
   local n = msg.n
   local surface = game.surfaces["nauvis"]
   local side = math.ceil(math.sqrt(n))
   bench_clear(surface, math.max(side, storage.bench_side or 0))
-
-  surface.request_to_generate_chunks({side / 2, side / 2}, math.ceil(side / 64) + 1)
-  surface.force_generate_chunk_requests()
-  bench_clear(surface, side)
-
-  local tiles = {}
-  for x = 0, side - 1 do
-    for y = 0, side - 1 do
-      tiles[#tiles + 1] = {name = "landfill", position = {x, y}}
-    end
-  end
-  surface.set_tiles(tiles)
+  prepare_area(surface, 0, 0, side, side)
 
   local inventories = {}
   for i = 0, n - 1 do
@@ -82,6 +88,136 @@ end
 -- То же, но без применения: меряет только передачу и разбор JSON.
 ops.bench_parse = function()
   return game.tick
+end
+
+-- Замер заморозки (TAR-166, схема «окно вокруг игрока»): disabled_by_script.
+
+-- Какие типы сущностей принимают disabled_by_script. Ставит по одной штуке каждого
+-- типа в полосе y = -200 и возвращает {имя = {is_updatable, disabled после записи}}.
+local PROBE = {
+  "transport-belt", "underground-belt", "splitter", "inserter", "burner-inserter",
+  "assembling-machine-2", "electric-mining-drill", "burner-mining-drill", "stone-furnace",
+  "pipe", "storage-tank", "pump", "lab", "boiler", "steam-engine", "solar-panel",
+  "accumulator", "small-electric-pole", "radar", "beacon", "wooden-chest", "roboport",
+  "car", "small-lamp", "arithmetic-combinator", "gun-turret",
+}
+
+ops.fz_probe = function()
+  local surface = game.surfaces["nauvis"]
+  prepare_area(surface, 0, -200, #PROBE * 12, 12)
+  local out = {}
+  for k, name in ipairs(PROBE) do
+    local ok, e = pcall(surface.create_entity, {
+      name = name, position = {k * 12 - 6, -194}, force = "player",
+      type = name == "underground-belt" and "input" or nil,
+    })
+    if not ok or not e then
+      out[name] = "не поставилась"
+    else
+      local upd = e.is_updatable
+      e.disabled_by_script = true
+      out[name] = {upd, e.disabled_by_script, e.active}
+    end
+  end
+  return helpers.table_to_json(out)
+end
+
+-- Сетка из n закольцованных конвейеров 2×2 (шаг 3 клетки) от (0, 300), заполненных плитами.
+-- Кольца крутятся вечно и без электричества — честная нагрузка на движок конвейеров.
+ops.fz_loops_setup = function(msg)
+  local surface = game.surfaces["nauvis"]
+  local per_row = math.ceil(math.sqrt(msg.n))
+  local side = per_row * 3
+  prepare_area(surface, 0, 300, side, side)
+  local d = defines.direction
+  local ring = {{0, 0, d.east}, {1, 0, d.south}, {1, 1, d.west}, {0, 1, d.north}}
+  local belts, updatable = {}, 0
+  for i = 0, msg.n - 1 do
+    local bx, by = (i % per_row) * 3, 300 + math.floor(i / per_row) * 3
+    for _, r in ipairs(ring) do
+      local b = surface.create_entity{
+        name = "transport-belt", position = {bx + r[1] + 0.5, by + r[2] + 0.5},
+        direction = r[3], force = "player",
+      }
+      belts[#belts + 1] = b
+      if b.is_updatable then updatable = updatable + 1 end
+    end
+  end
+  -- Заполняем после постройки: у замкнутого кольца линии уже связаны.
+  for _, b in ipairs(belts) do
+    for lane = 1, 2 do
+      local line = b.get_transport_line(lane)
+      for _ = 1, 3 do
+        if not line.insert_at_back({name = "iron-plate", count = 1}) then break end
+      end
+    end
+  end
+  storage.fz = {belts = belts, x1 = side, y1 = 300 + side}
+  return helpers.table_to_json{belts = #belts, updatable = updatable}
+end
+
+-- Позиции предметов на первых трёх конвейерах — по двум снимкам видно, едут ли они.
+ops.fz_snapshot = function()
+  local parts = {}
+  for k = 1, 3 do
+    for lane = 1, 2 do
+      for _, item in ipairs(storage.fz.belts[k].get_transport_line(lane).get_detailed_contents()) do
+        parts[#parts + 1] = string.format("%.3f", item.position)
+      end
+    end
+  end
+  return table.concat(parts, ",")
+end
+
+-- Заморозить/разморозить все кольца repeat раз подряд (для замера цены одного переключения).
+-- Возвращает, сколько конвейеров после последней записи читаются как disabled.
+ops.fz_set = function(msg)
+  local belts = storage.fz.belts
+  local value = msg.disabled
+  local rep = msg["repeat"] or 1
+  for r = 1, rep do
+    -- При нескольких повторах чередуем, чтобы каждая запись реально меняла состояние;
+    -- последний повтор всегда ставит value.
+    local v = value
+    if (rep - r) % 2 == 1 then v = not value end
+    for i = 1, #belts do belts[i].disabled_by_script = v end
+  end
+  local n = 0
+  for i = 1, #belts do
+    if belts[i].disabled_by_script then n = n + 1 end
+  end
+  return n
+end
+
+-- Сдвиг окна: найти конвейеры в полосе и переключить. Полоса — {x0, y0, x1, y1}.
+-- repeat — для замера цены. Возвращает, сколько сущностей в полосе.
+ops.fz_area_set = function(msg)
+  local surface = game.surfaces["nauvis"]
+  local found
+  local rep = msg["repeat"] or 1
+  for r = 1, rep do
+    local v = msg.disabled
+    if (rep - r) % 2 == 1 then v = not v end
+    found = surface.find_entities_filtered{
+      area = {{msg.x0, msg.y0}, {msg.x1, msg.y1}}, type = "transport-belt",
+    }
+    for i = 1, #found do found[i].disabled_by_script = v end
+  end
+  return #found
+end
+
+ops.fz_speed = function(msg)
+  game.speed = msg.speed
+  return game.speed
+end
+
+-- Сносит кольца (для замера UPS пустого мира).
+ops.fz_clear = function()
+  for _, b in ipairs(storage.fz and storage.fz.belts or {}) do
+    if b.valid then b.destroy() end
+  end
+  storage.fz = nil
+  return "ok"
 end
 
 -- Замер клиент → ядро: синтетические «действия игрока».
