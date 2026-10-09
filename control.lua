@@ -220,6 +220,70 @@ ops.fz_clear = function()
   return "ok"
 end
 
+-- Витрина заморозки для клиента с окном: два ряда машин с бесконечным питанием рядом
+-- с первым игроком — верхний работает, нижний заморожен. Скриншот — showcase_shot.
+ops.showcase_setup = function()
+  local p = game.connected_players[1]
+  if not p then error("нет игрока в игре") end
+  local surface = p.surface
+  local x0, y0 = math.floor(p.position.x) - 8, math.floor(p.position.y) + 4
+  prepare_area(surface, x0 - 2, y0 - 3, 24, 14)
+
+  local function make(name, x, y, extra)
+    local spec = {name = name, position = {x, y}, force = p.force}
+    for k, v in pairs(extra or {}) do spec[k] = v end
+    return surface.create_entity(spec)
+  end
+  local ei = make("electric-energy-interface", x0 + 18, y0 + 4)
+  ei.electric_buffer_size = 1e9
+  ei.power_production = 1e7
+  make("substation", x0 + 16, y0 + 4)
+  make("substation", x0 + 6, y0 + 4)
+
+  local machines = {}
+  for row = 0, 1 do
+    local y = y0 + row * 6
+    for k = 0, 2 do
+      local m = make("assembling-machine-2", x0 + k * 4 + 1.5, y + 1.5, {recipe = "iron-gear-wheel"})
+      m.insert{name = "iron-plate", count = 100}
+      machines[#machines + 1] = m
+    end
+    local a = make("wooden-chest", x0 + 12.5, y + 0.5)
+    a.insert{name = "iron-plate", count = 100}
+    make("wooden-chest", x0 + 14.5, y + 0.5)
+    machines[#machines + 1] = make("inserter", x0 + 13.5, y + 0.5, {direction = defines.direction.west})
+    rendering.draw_text{
+      text = row == 0 and "работает" or "disabled_by_script = true",
+      surface = surface, target = {x0, y - 1.5}, color = {1, 1, 1}, scale = 1.5,
+    }
+    if row == 1 then
+      for i = 5, 8 do machines[i].disabled_by_script = true end
+    end
+  end
+  storage.showcase = {machines = machines, center = {x0 + 9, y0 + 4}}
+  return #machines
+end
+
+-- Скриншоты витрины в script-output и статусы машин (как их видит игра).
+ops.showcase_shot = function()
+  local sc = storage.showcase
+  local p = game.connected_players[1]
+  for _, alt in ipairs{false, true} do
+    game.take_screenshot{
+      player = p, position = sc.center, resolution = {1600, 900}, zoom = 1,
+      path = alt and "fd-showcase-alt.png" or "fd-showcase.png", show_entity_info = alt,
+    }
+  end
+  local names = {}
+  for k, v in pairs(defines.entity_status) do names[v] = k end
+  local out = {}
+  for i, m in ipairs(sc.machines) do
+    out[i] = string.format("%s %s: %s, products_finished=%s", i <= 4 and "работает" or "заморожен",
+      m.name, names[m.status] or tostring(m.status), m.type == "assembling-machine" and m.products_finished or "-")
+  end
+  return table.concat(out, "\n")
+end
+
 -- Замер заполнения полосы при входе в окно: LuaTransportLine.insert_at.
 -- Ряды прямых конвейеров по 32 клетки от (0, 1000), вплотную, через ряд.
 ops.ins_setup = function(msg)
