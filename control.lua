@@ -84,6 +84,50 @@ ops.bench_parse = function()
   return game.tick
 end
 
+-- Замер клиент → ядро: синтетические «действия игрока».
+-- Каждые every тиков мод создаёт per_tick событий; ядро забирает их опросом (poll)
+-- или читает из файла script-output/fd-events.jsonl (mode = "file").
+local EVENTS_FILE = "fd-events.jsonl"
+
+ops.ev_start = function(msg)
+  storage.ev = {every = msg.every, per_tick = msg.per_tick, mode = msg.mode, seq = 0, queue = {}}
+  return "ok"
+end
+
+-- Останавливает генерацию, возвращает сколько событий создано всего.
+ops.ev_stop = function()
+  local seq = storage.ev and storage.ev.seq or 0
+  storage.ev = nil
+  return seq
+end
+
+-- Отдаёт накопленные события и текущий тик, очищает очередь.
+ops.poll = function()
+  local ev = storage.ev
+  local queue = ev and ev.queue or {}
+  if ev then ev.queue = {} end
+  return helpers.table_to_json{now = game.tick, ev = queue}
+end
+
+script.on_event(defines.events.on_tick, function(e)
+  local ev = storage.ev
+  if not ev or e.tick % ev.every ~= 0 then return end
+  local lines = ev.mode == "file" and {} or nil
+  for j = 1, ev.per_tick do
+    ev.seq = ev.seq + 1
+    local item = {t = e.tick, i = ev.seq, a = "build", n = "assembling-machine-2", x = j, y = -j}
+    if lines then
+      lines[j] = helpers.table_to_json(item)
+    else
+      ev.queue[#ev.queue + 1] = item
+    end
+  end
+  if lines then
+    -- for_player = 0: пишет только сервер (у клиентов мультиплеера файла не будет).
+    helpers.write_file(EVENTS_FILE, table.concat(lines, "\n") .. "\n", true, 0)
+  end
+end)
+
 local function handle(cmd)
   -- Только сервер/RCON. Из чата игрока команда не работает.
   if cmd.player_index ~= nil then
